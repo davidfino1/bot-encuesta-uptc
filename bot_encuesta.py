@@ -457,7 +457,17 @@ def create_conversation():
         conversation_timeout=CONVERSATION_TIMEOUT_SECONDS,
     )
 
-
 def main():
     if not TELEGRAM_BOT_TOKEN or not HASH_SECRET:
-        raise SystemExit(MISSING_SETTINGS
+        raise SystemExit(MISSING_SETTINGS_TEXT)
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application.add_handler(create_conversation())
+    application.add_handler(CommandHandler("exportar", export_csv))
+    application.add_handler(CommandHandler("cancel", show_no_active_survey))
+    application.add_handler(CallbackQueryHandler(show_expired_survey))
+    logger.info("Bot en ejecución...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()
