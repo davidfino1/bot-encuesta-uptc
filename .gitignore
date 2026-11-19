@@ -1,0 +1,4 @@
+.env
+resultados_telegram.csv
+__pycache__/
+.venv/
