@@ -38,6 +38,7 @@ from cuestionario import (
     TIMEOUT_TEXT,
     USE_BUTTONS_TEXT,
 )
+from exportador_excel import generar_excel_desde_csv
 
 load_dotenv()
 
@@ -354,8 +355,13 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not CSV_PATH.exists():
             await update.message.reply_text(NO_DATA_TEXT)
             return
-        with open(CSV_PATH, "rb") as file:
-            await update.message.reply_document(document=file, filename=CSV_PATH.name)
+        xlsx_path = await asyncio.to_thread(generar_excel_desde_csv, CSV_PATH)
+        with open(xlsx_path, "rb") as file:
+            await update.message.reply_document(
+                document=file,
+                filename="resultados_encuesta_uptc.xlsx",
+                caption="Aquí tienes los resultados formateados en Excel.",
+            )
 
 
 async def show_buttons_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
