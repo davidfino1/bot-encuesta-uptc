@@ -66,9 +66,14 @@ CONSENT_NO = "consent:no"
 CONSENT_PATTERN = r"^consent:(yes|no)$"
 ANSWER_PREFIX = "ans"
 SKIP_PREFIX = "skip"
+BACK_PREFIX = "back"
+NEXT_PREFIX = "next"
 SEPARATOR = ":"
-ANSWER_PATTERN = r"^(ans:\d+:\d+|skip:\d+)$"
+ANSWER_PATTERN = r"^(ans:\d+:\d+|skip:\d+|back:\d+|next:\d+)$"
 ABANDON_PREFIX = "P"
+BACK_LABEL = "⬅️ Anterior"
+NEXT_LABEL = "Siguiente ➡️"
+SELECTED_PREFIX = "✓ "
 
 END_COMPLETED = "completado"
 END_CANCEL = "cancel"
@@ -209,8 +214,14 @@ def is_text_question(question):
     return question.get("type") == TEXT_QUESTION_TYPE
 
 
-def build_question_text(q_index):
-    return f"Pregunta {q_index + 1} de {len(QUESTIONS)}\n{QUESTIONS[q_index]['text']}"
+def build_question_text(q_index, answers=None):
+    question = QUESTIONS[q_index]
+    text = f"Pregunta {q_index + 1} de {len(QUESTIONS)}\n{question['text']}"
+    if answers and is_text_question(question) and question["column"] in answers:
+        saved = answers[question["column"]]
+        current = saved if saved else "(Omitida)"
+        text += f"\n\nRespuesta actual: {current}"
+    return text
 
 
 def build_consent_keyboard():
@@ -224,28 +235,58 @@ def build_consent_keyboard():
     )
 
 
-def build_text_keyboard(q_index):
-    button = InlineKeyboardButton(
-        SKIP_LABEL, callback_data=f"{SKIP_PREFIX}{SEPARATOR}{q_index}"
-    )
-    return InlineKeyboardMarkup([[button]])
-
-
-def build_options_keyboard(q_index):
+def build_navigation_row(q_index, answers):
     question = QUESTIONS[q_index]
-    buttons = []
-    for option_index, label in enumerate(question["options"]):
-        data = f"{ANSWER_PREFIX}{SEPARATOR}{q_index}{SEPARATOR}{option_index}"
-        buttons.append(InlineKeyboardButton(label, callback_data=data))
-    size = question["columns"]
-    rows = [buttons[start : start + size] for start in range(0, len(buttons), size)]
+    nav_buttons = []
+    if q_index > 0:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                BACK_LABEL, callback_data=f"{BACK_PREFIX}{SEPARATOR}{q_index}"
+            )
+        )
+    if answers and question["column"] in answers:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                NEXT_LABEL, callback_data=f"{NEXT_PREFIX}{SEPARATOR}{q_index}"
+            )
+        )
+    return nav_buttons
+
+
+def build_text_keyboard(q_index, answers):
+    rows = [
+        [
+            InlineKeyboardButton(
+                SKIP_LABEL, callback_data=f"{SKIP_PREFIX}{SEPARATOR}{q_index}"
+            )
+        ]
+    ]
+    nav_row = build_navigation_row(q_index, answers)
+    if nav_row:
+        rows.append(nav_row)
     return InlineKeyboardMarkup(rows)
 
 
-def build_keyboard(q_index):
+def build_options_keyboard(q_index, answers):
+    question = QUESTIONS[q_index]
+    saved_value = answers.get(question["column"]) if answers else None
+    buttons = []
+    for option_index, label in enumerate(question["options"]):
+        display_label = f"{SELECTED_PREFIX}{label}" if saved_value == label else label
+        data = f"{ANSWER_PREFIX}{SEPARATOR}{q_index}{SEPARATOR}{option_index}"
+        buttons.append(InlineKeyboardButton(display_label, callback_data=data))
+    size = question["columns"]
+    rows = [buttons[start : start + size] for start in range(0, len(buttons), size)]
+    nav_row = build_navigation_row(q_index, answers)
+    if nav_row:
+        rows.append(nav_row)
+    return InlineKeyboardMarkup(rows)
+
+
+def build_keyboard(q_index, answers=None):
     if is_text_question(QUESTIONS[q_index]):
-        return build_text_keyboard(q_index)
-    return build_options_keyboard(q_index)
+        return build_text_keyboard(q_index, answers)
+    return build_options_keyboard(q_index, answers)
 
 
 def store_choice(user_data, parts):
@@ -267,7 +308,10 @@ async def advance(context, send):
     user_data["q_index"] += 1
     if user_data["q_index"] < len(QUESTIONS):
         next_index = user_data["q_index"]
-        await send(build_question_text(next_index), build_keyboard(next_index))
+        await send(
+            build_question_text(next_index, user_data["answers"]),
+            build_keyboard(next_index, user_data["answers"]),
+        )
         return SURVEY
     await save_row(build_row(user_data, True, END_COMPLETED))
     await send(THANKS_TEXT, None)
@@ -294,7 +338,8 @@ async def handle_consent(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["consent"] = True
     context.user_data["q_index"] = 0
     await query.edit_message_text(
-        build_question_text(0), reply_markup=build_keyboard(0)
+        build_question_text(0, context.user_data["answers"]),
+        reply_markup=build_keyboard(0, context.user_data["answers"]),
     )
     return SURVEY
 
@@ -306,11 +351,28 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = context.user_data
     if int(parts[1]) != user_data["q_index"]:
         return SURVEY
-    if not store_choice(user_data, parts):
+
+    if parts[0] == BACK_PREFIX:
+        if user_data["q_index"] > 0:
+            user_data["q_index"] -= 1
+            prev_index = user_data["q_index"]
+            await query.edit_message_text(
+                build_question_text(prev_index, user_data["answers"]),
+                reply_markup=build_keyboard(prev_index, user_data["answers"]),
+            )
         return SURVEY
 
     async def send(text, markup):
         await query.edit_message_text(text, reply_markup=markup)
+
+    if parts[0] == NEXT_PREFIX:
+        question = QUESTIONS[user_data["q_index"]]
+        if question["column"] not in user_data["answers"]:
+            return SURVEY
+        return await advance(context, send)
+
+    if not store_choice(user_data, parts):
+        return SURVEY
 
     return await advance(context, send)
 
@@ -398,15 +460,4 @@ def create_conversation():
 
 def main():
     if not TELEGRAM_BOT_TOKEN or not HASH_SECRET:
-        raise SystemExit(MISSING_SETTINGS_TEXT)
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    application.add_handler(create_conversation())
-    application.add_handler(CommandHandler("exportar", export_csv))
-    application.add_handler(CommandHandler("cancel", show_no_active_survey))
-    application.add_handler(CallbackQueryHandler(show_expired_survey))
-    logger.info("Bot en ejecución...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
-    main()
+        raise SystemExit(MISSING_SETTINGS
