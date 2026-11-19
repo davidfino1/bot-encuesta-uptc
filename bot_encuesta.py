@@ -44,7 +44,11 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 HASH_SECRET = os.getenv("HASH_SECRET")
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+ADMIN_USER_IDS = {
+    uid.strip()
+    for uid in os.getenv("ADMIN_USER_ID", "").split(",")
+    if uid.strip()
+}
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "."))
 CSV_PATH = DATA_DIR / "resultados_telegram.csv"
@@ -410,7 +414,7 @@ async def handle_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not ADMIN_USER_ID or str(update.effective_user.id) != ADMIN_USER_ID:
+    if str(update.effective_user.id) not in ADMIN_USER_IDS:
         await update.message.reply_text(UNAUTHORIZED_TEXT)
         return
     async with csv_lock:
@@ -456,6 +460,7 @@ def create_conversation():
         allow_reentry=True,
         conversation_timeout=CONVERSATION_TIMEOUT_SECONDS,
     )
+
 
 def main():
     if not TELEGRAM_BOT_TOKEN or not HASH_SECRET:
