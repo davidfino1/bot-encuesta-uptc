@@ -71,7 +71,7 @@ BotTelegram/
    ```env
    TELEGRAM_BOT_TOKEN=tu_token_de_botfather
    HASH_SECRET=clave_secreta_para_anonimizacion
-   ADMIN_USER_ID=7662539873,otro_id_opcional
+   ADMIN_USER_ID=tu_id_de_telegram,otro_id_opcional
    DATA_DIR=.
    ```
 
